@@ -650,7 +650,9 @@ def main(argv: list[str]) -> int:
     scrolls = SCROLLS
     scroll_pause_ms = 900
     # 默认开启 headful 模式，方便手动登录或观察页面
-    headful = HEADFUL
+    # Support environment variable for container deployment
+    import os
+    headful = os.environ.get("HEADFUL", str(HEADFUL)).lower() == "true"
     # 排序方式：general (综合), time_descending (最新), popularity_descending (最热)
     sort_type = "time_descending"
     
@@ -659,7 +661,8 @@ def main(argv: list[str]) -> int:
     keep_open = False
     detail_limit = 0
     detail_delay_ms = 1200
-    out_json = Path("xhs_scraper/res_docs/xhs_search.json").expanduser().resolve()
+    # Use relative path based on script location
+    out_json = Path(__file__).parent / "res_docs/xhs_search.json"
 
     user_data_dir = None
     if isinstance(profile_dir, str) and profile_dir.strip():

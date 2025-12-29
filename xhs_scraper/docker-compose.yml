@@ -1,0 +1,13 @@
+services:
+  xhs-scraper:
+    build: .
+    container_name: xhs-scraper-container
+    volumes:
+      # 挂载结果目录到本地，方便查看爬取的数据
+      - ./res_docs:/app/res_docs
+      # 如果需要持久化登录态（可选，视脚本实现而定）
+      - ./.xhs_profile:/app/.xhs_profile
+    environment:
+      - HEADFUL=false
+      - TZ=Asia/Shanghai
+    restart: unless-stopped

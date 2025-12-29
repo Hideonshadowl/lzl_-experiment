@@ -16,7 +16,9 @@ def send_email():
     smtp_port = 465
 
     # File path
-    json_path = Path("/Users/leon/Library/Mobile Documents/com~apple~CloudDocs/test_code/xhs_scraper/res_docs/xhs_search.json")
+    # Use relative path compatible with both local and container environments
+    # Assuming the script is run from the xhs_scraper directory or the project root is mapped correctly
+    json_path = Path(__file__).parent / "res_docs/xhs_search.json"
 
     # Read and parse JSON
     try:
