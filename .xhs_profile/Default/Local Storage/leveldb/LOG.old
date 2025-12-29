@@ -1,2 +1,3 @@
-2025/12/29-15:43:02.118 1c1003b Creating DB /Users/leon/Library/Mobile Documents/com~apple~CloudDocs/test_code/.xhs_profile/Default/Local Storage/leveldb since it was missing.
-2025/12/29-15:43:02.144 1c1003b Reusing MANIFEST /Users/leon/Library/Mobile Documents/com~apple~CloudDocs/test_code/.xhs_profile/Default/Local Storage/leveldb/MANIFEST-000001
+2025/12/29-15:45:16.315 1c10f35 Reusing MANIFEST /Users/leon/Library/Mobile Documents/com~apple~CloudDocs/test_code/.xhs_profile/Default/Local Storage/leveldb/MANIFEST-000001
+2025/12/29-15:45:16.319 1c10f35 Recovering log #3
+2025/12/29-15:45:16.319 1c10f35 Reusing old log /Users/leon/Library/Mobile Documents/com~apple~CloudDocs/test_code/.xhs_profile/Default/Local Storage/leveldb/000003.log 
