@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+.xhs_profile/
+.env
+res_docs/*.html
