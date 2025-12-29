@@ -1,3 +1,5 @@
-2025/12/29-18:07:08.792 1c45a53 Reusing MANIFEST /Users/leon/Library/Mobile Documents/com~apple~CloudDocs/test_code/.xhs_profile/Default/Local Storage/leveldb/MANIFEST-000001
-2025/12/29-18:07:08.814 1c45a53 Recovering log #4
-2025/12/29-18:07:08.815 1c45a53 Reusing old log /Users/leon/Library/Mobile Documents/com~apple~CloudDocs/test_code/.xhs_profile/Default/Local Storage/leveldb/000004.log 
+2025/12/29-21:04:53.480 1ac0dff Reusing MANIFEST /Users/hideonbush./Desktop/lzl_-experiment/.xhs_profile/Default/Local Storage/leveldb/MANIFEST-000001
+2025/12/29-21:04:53.482 1ac0dff Recovering log #4
+2025/12/29-21:04:53.482 1ac0dff Level-0 table #6: started
+2025/12/29-21:04:53.486 1ac0dff Level-0 table #6: 17975 bytes OK
+2025/12/29-21:04:53.487 1ac0dff Delete type=0 #4

@@ -34,7 +34,7 @@ XHS_EXPLORE_URL = f"{XHS_BASE_URL}/explore"
 
 # 直接在这里填写你要抓取的搜索词（可写多个，会依次抓取并汇总到同一个输出文件里）
 SEARCH_KEYWORDS: list[str] = ["python有偿"]
-HEADFUL: bool = False
+HEADFUL: bool = True
 SCROLLS: int = 1
 
 
