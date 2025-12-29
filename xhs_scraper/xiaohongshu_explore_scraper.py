@@ -33,12 +33,15 @@ XHS_BASE_URL = "https://www.xiaohongshu.com"
 XHS_EXPLORE_URL = f"{XHS_BASE_URL}/explore"
 
 # 直接在这里填写你要抓取的搜索词（可写多个，会依次抓取并汇总到同一个输出文件里）
-SEARCH_KEYWORDS: list[str] = ["编程作业"]
+SEARCH_KEYWORDS: list[str] = ["python有偿"]
+HEADFUL: bool = False
+SCROLLS: int = 1
 
 
-def build_search_url(keyword: str) -> str:
-    # 小红书 web 端常见搜索入口：/search_result?keyword=<kw>
-    return f"{XHS_BASE_URL}/search_result?keyword={quote(keyword)}"
+def build_search_url(keyword: str, sort: str = "general") -> str:
+    # 小红书 web 端常见搜索入口：/search_result?keyword=<kw>&sort=<sort>
+    # sort values: general (综合), time_descending (最新), popularity_descending (最热)
+    return f"{XHS_BASE_URL}/search_result?keyword={quote(keyword)}&sort={sort}"
 
 
 @dataclass
@@ -226,37 +229,169 @@ def _parse_like_count(like_text: str | None) -> int | None:
     return int(num)
 
 
+def _parse_publish_time_from_text(text: str | None) -> str | None:
+    if not text:
+        return None
+    
+    # 匹配常见的相对时间或绝对时间格式
+    # 1. 相对时间：xx分钟前, xx小时前, 昨天 xx:xx, 前天 xx:xx
+    # 2. 绝对时间：yyyy-mm-dd, mm-dd
+    
+    patterns = [
+        r"(\d+分钟前)",
+        r"(\d+小时前)",
+        r"(昨天\s*\d{1,2}:\d{2})",
+        r"(前天\s*\d{1,2}:\d{2})",
+        r"(\d{1,2}-\d{1,2})",       # mm-dd
+        r"(\d{4}-\d{1,2}-\d{1,2})", # yyyy-mm-dd
+        r"(\d+天前)",
+    ]
+    
+    for p in patterns:
+        m = re.search(p, text)
+        if m:
+            return m.group(1)
+            
+    return None
+
+
+def switch_to_newest_sort(page: Page) -> None:
+    """通过 UI 交互切换到“最新”排序"""
+    print("尝试通过 UI 切换到“最新”排序...")
+    try:
+        # 1. 点击“筛选”按钮
+        # 优先点击整个 .filter 容器，通常比点击内部 span 更稳
+        filter_container = page.locator(".filter").first
+        
+        if filter_container.is_visible():
+            # 尝试 Hover 触发（有时 hover 就会显示下拉）
+            try:
+                filter_container.hover()
+                page.wait_for_timeout(500)
+            except:
+                pass
+            
+            # 强制点击
+            filter_container.click(force=True)
+            page.wait_for_timeout(1000)
+            
+            # 如果面板没出来（检测不到“最新”），尝试点击 icon
+            if not page.locator(".filter-panel .tags", has_text="最新").first.is_visible():
+                print("点击 .filter 未展开，尝试点击图标...")
+                icon = page.locator(".filter .filter-icon").first
+                if icon.is_visible():
+                    icon.click(force=True)
+                    page.wait_for_timeout(1500)
+
+            # 2. 点击“最新”
+            # 尝试直接找 filter-panel 里的“最新”文本 span
+            newest_btn = page.locator(".filter-panel span", has_text="最新").first
+            
+            if newest_btn.is_visible():
+                newest_btn.click(force=True)
+                print("已点击“最新”按钮，等待页面刷新...")
+                page.wait_for_timeout(3500)
+            else:
+                print("展开筛选后未找到“最新”按钮，尝试备用选择器...")
+                # 备用：查找包含“最新”的 div.tags
+                newest_tag = page.locator(".filter-panel .tags", has_text="最新").first
+                if newest_tag.is_visible():
+                    newest_tag.click(force=True)
+                    print("已通过 tags 点击“最新”，等待刷新...")
+                    page.wait_for_timeout(3500)
+                else:
+                    print("无法找到“最新”选项。")
+                    try:
+                        debug_ss = Path("xhs_scraper/res_docs/debug_filter_failed.png")
+                        _ensure_parent(debug_ss)
+                        page.screenshot(path=debug_ss)
+                        print(f"已保存调试截图: {debug_ss}")
+                    except:
+                        pass
+        else:
+            print("未找到“筛选”(.filter) 按钮，跳过 UI 切换。")
+            
+    except Exception as e:
+        print(f"切换排序失败: {e}")
+
+
 def wait_for_user_login_if_needed(page: Page, timeout_sec: int) -> None:
     """给用户时间手动登录/过验证码。
-
-    这个函数不会尝试任何绕过，只会：
-    - 打印提示
-    - 等待若干秒，让你在浏览器里完成动作
+    
+    智能策略：
+    1. 检查页面是否有登录弹窗/验证码。
+    2. 如果有，等待其消失（用户完成登录）。
+    3. 如果没有，直接返回（不浪费时间）。
     """
-
     if timeout_sec <= 0:
         return
 
-    print(
-        "\n如果页面提示登录/验证码，请在打开的浏览器窗口中手动完成。"
-        f"\n我会等待 {timeout_sec} 秒，然后继续滚动采集...\n"
-    )
+    print("\n[登录检测] 检查是否有登录弹窗...")
+    
+    # 稍微等一下让弹窗浮现
+    page.wait_for_timeout(2000)
+    
+    login_selectors = [
+        ".login-container", 
+        ".login-modal", 
+        "iframe[src*='login']", 
+        "div:has-text('手机号登录')",
+        "div:has-text('验证码')",
+        "div:has-text('安全验证')"
+    ]
+    
+    is_login_visible = False
+    for sel in login_selectors:
+        try:
+            if page.locator(sel).first.is_visible():
+                is_login_visible = True
+                print(f"[登录检测] 发现登录/验证元素 ({sel})，暂停脚本等待手动操作...")
+                break
+        except:
+            pass
+            
+    if not is_login_visible:
+        # 再兜底检查一下 body 文本
+        try:
+            body_text = page.locator("body").inner_text(timeout=1000)
+            if "登录后" in body_text or "手机号登录" in body_text:
+                is_login_visible = True
+                print("[登录检测] 发现页面包含“登录”相关提示，暂停脚本等待手动操作...")
+        except:
+            pass
 
-    # 简单判断：如果页面包含明显的登录字样，给出更强提示
-    try:
-        body_text = page.locator("body").inner_text(timeout=3000)
-        if any(k in body_text for k in ["登录", "手机号", "验证码"]):
-            print("检测到疑似登录界面/提示，请先完成登录再等待结束。\n")
-    except Exception:
-        pass
-
-    for remaining in range(timeout_sec, 0, -1):
-        if remaining % 5 == 0 or remaining <= 3:
-            print(f"  ...{remaining}s")
-        time.sleep(1)
+    if is_login_visible:
+        print(f"请在打开的浏览器中完成登录/验证。最长等待 {timeout_sec} 秒...")
+        # 轮询直到弹窗消失或超时
+        start_time = time.time()
+        while time.time() - start_time < timeout_sec:
+            still_visible = False
+            # 只要任意一个选择器还可见，就认为还没登录完
+            for sel in login_selectors:
+                try:
+                    if page.locator(sel).first.is_visible():
+                        still_visible = True
+                        break
+                except:
+                    pass
+            
+            if not still_visible:
+                # 再次检查 body 文本兜底（可选，这里为了体验流畅先简化）
+                print("[登录检测] 登录弹窗似乎已消失，继续执行任务！")
+                return
+                
+            time.sleep(1)
+            remaining = int(timeout_sec - (time.time() - start_time))
+            if remaining % 5 == 0:
+                print(f"  ...剩余等待 {remaining}s")
+        
+        print("[登录检测] 等待超时，尝试继续执行（可能失败）...")
+    else:
+        print("[登录检测] 未发现明显阻断弹窗，无需等待。")
 
 
 def scroll_page(page: Page, scrolls: int, scroll_pause_ms: int) -> None:
+    """滚动页面指定次数，每次间隔一定时间。"""
     for i in range(scrolls):
         if page.is_closed():
             raise RuntimeError("页面已关闭，无法继续滚动。")
@@ -278,8 +413,16 @@ def extract_cards(page: Page, keyword: str | None = None) -> list[ExploreCard]:
     cards: list[ExploreCard] = []
 
     # 优先按“卡片容器”提取（通常比直接扫 a 更稳）
-    # 这些选择器不保证永远存在，但能覆盖一部分常见结构
-    containers = page.locator("article, section, div:has(a[href^='/explore/'])")
+    # 策略 1：使用精确的 class 选择器（推荐）
+    containers = page.locator("section.note-item")
+    
+    # 策略 2：如果找不到精确 class，尝试通用标签
+    if containers.count() == 0:
+        containers = page.locator("article, section")
+        
+    # 策略 3：最后兜底（风险较高，可能会选中父级容器）
+    if containers.count() == 0:
+        containers = page.locator("div:has(a[href^='/explore/'])")
 
     container_count = containers.count()
     for i in range(min(container_count, 300)):
@@ -334,25 +477,73 @@ def extract_cards(page: Page, keyword: str | None = None) -> list[ExploreCard]:
             ):
                 continue
 
-            if text:
-                lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
-                # 标题：取一个较长但不夸张的行（避免把作者/点赞当标题）
-                for ln in lines[:8]:
-                    if 4 <= len(ln) <= 80 and not re.search(r"\d+\s*(?:赞|点赞)$", ln):
-                        title = title or ln
+            # --- 0. 基础数据获取 ---
+            publish_time = None
+            try:
+                # 尝试获取所有文本，用换行符分隔
+                raw_text = c.inner_text()
+            except Exception as e:
+                raw_text = ""
+
+            # --- 1. 纯文本解析逻辑 (最稳健) ---
+            if raw_text:
+                lines = [ln.strip() for ln in raw_text.split("\n") if ln.strip()]
+                
+                # 倒序查找关键行
+                # 通常结构是：[标题区...] -> [作者] -> [时间/点赞]
+                
+                # 步骤 A: 找时间行
+                time_idx = -1
+                for i in range(len(lines) - 1, -1, -1):
+                    line = lines[i]
+                    # 匹配常见时间格式
+                    if re.search(r'(\d+(?:分钟|小时|天)前|昨天|前天|\d{2}-\d{2}|\d{4}-\d{2}-\d{2})', line):
+                        publish_time = line
+                        time_idx = i
                         break
+                
+                # 步骤 B: 找点赞行
+                if not like_text:
+                    for i in range(len(lines) - 1, -1, -1):
+                        if i == time_idx: continue
+                        line = lines[i]
+                        # 简单认为包含数字且很短的非时间行可能是点赞
+                        if (re.match(r'^\d+$', line) or line == "赞" or re.match(r'^\d+万$', line)) and len(line) < 10:
+                            like_text = line
+                            break
+                
+                # 步骤 C: 找作者
+                if time_idx > 0:
+                    author_idx = time_idx - 1
+                    possible_author = lines[author_idx]
+                    if not re.search(r'(\d+(?:分钟|小时|天)前|昨天|前天)', possible_author):
+                        author = possible_author
+                        # 步骤 D: 找标题
+                        if author_idx > 0:
+                            title = " ".join(lines[:author_idx])
+                elif time_idx == -1 and len(lines) >= 2:
+                    # 没找到时间，盲猜倒数第二行是作者
+                    author = lines[-2]
+                    title = " ".join(lines[:-2])
 
-                # 点赞：包含数字且往往较短
-                for ln in lines[:12]:
-                    if re.search(r"\d", ln) and len(ln) <= 20:
-                        like_text = like_text or ln
+            # --- 2. 封面图 (仍然尝试 CSS) ---
+            try:
+                if not img_url:
+                    cover_el = c.locator(".cover").first
+                    if cover_el.count() > 0:
+                        style = cover_el.get_attribute("style") or ""
+                        m_bg = re.search(r'url\("?(.+?)"?\)', style)
+                        if m_bg:
+                            img_url = m_bg.group(1)
+            except:
+                pass
 
-                # 作者：取一个短文本且不含数字
-                for ln in lines[:12]:
-                    if 1 <= len(ln) <= 20 and not re.search(r"\d", ln) and ln != title:
-                        author = author or ln
-
+            # --- 3. 数据清洗 ---
             like_count = _parse_like_count(like_text)
+            
+            # 尝试从文本中解析发布时间 (如果 CSS 没抓到)
+            if not publish_time and raw_text:
+                publish_time = _parse_publish_time_from_text(raw_text)
 
             cards.append(
                 ExploreCard(
@@ -364,7 +555,7 @@ def extract_cards(page: Page, keyword: str | None = None) -> list[ExploreCard]:
                     cover_url=img_url,
                     like_text=like_text,
                     like_count=like_count,
-                    publish_time=None,
+                    publish_time=publish_time,
                     raw_text=text,
                 )
             )
@@ -387,6 +578,8 @@ def extract_cards(page: Page, keyword: str | None = None) -> list[ExploreCard]:
                 except Exception:
                     text = None
 
+                publish_time = _parse_publish_time_from_text(text)
+
                 cards.append(
                     ExploreCard(
                         keyword=keyword,
@@ -397,7 +590,7 @@ def extract_cards(page: Page, keyword: str | None = None) -> list[ExploreCard]:
                         cover_url=None,
                         like_text=None,
                         like_count=None,
-                        publish_time=None,
+                        publish_time=publish_time,
                         raw_text=text,
                     )
                 )
@@ -454,15 +647,19 @@ def launch_browser(
 
 def main(argv: list[str]) -> int:
     # 依然保留部分可调参数（不含搜索词；搜索词直接在 SEARCH_KEYWORDS 里改）
-    scrolls = 10
+    scrolls = SCROLLS
     scroll_pause_ms = 900
-    headful = False
+    # 默认开启 headful 模式，方便手动登录或观察页面
+    headful = HEADFUL
+    # 排序方式：general (综合), time_descending (最新), popularity_descending (最热)
+    sort_type = "time_descending"
+    
     profile_dir = ".xhs_profile"
-    login_wait_sec = 35
+    login_wait_sec = 30
     keep_open = False
     detail_limit = 0
     detail_delay_ms = 1200
-    out_json = Path("res_docs/xhs_search.json").expanduser().resolve()
+    out_json = Path("xhs_scraper/res_docs/xhs_search.json").expanduser().resolve()
 
     user_data_dir = None
     if isinstance(profile_dir, str) and profile_dir.strip():
@@ -481,9 +678,22 @@ def main(argv: list[str]) -> int:
             def _safe_scroll_and_extract(
                 *, label: str, keyword: str | None
             ) -> list[ExploreCard]:
+                accumulated_cards = []
+                
+                # 1. 初始提取（避免滚动后顶部元素被回收）
+                print(f"初始提取（{label}）...")
+                accumulated_cards.extend(extract_cards(page, keyword=keyword))
+
                 print(f"开始滚动加载（{label}）：{scrolls} 次")
                 try:
-                    scroll_page(page, scrolls=scrolls, scroll_pause_ms=scroll_pause_ms)
+                    # 分步滚动并提取
+                    for i in range(scrolls):
+                        scroll_page(page, scrolls=1, scroll_pause_ms=scroll_pause_ms)
+                        # 每滚一次都提取一次，确保不漏
+                        # (虽然会有重复，但后面有去重逻辑)
+                        # print(f"  滚动 {i+1}/{scrolls} 后提取...") 
+                        accumulated_cards.extend(extract_cards(page, keyword=keyword))
+                        
                 except Error as e:
                     if "TargetClosedError" in str(e) or "has been closed" in str(e):
                         print(
@@ -496,30 +706,23 @@ def main(argv: list[str]) -> int:
                         raise SystemExit(2)
                     raise
 
-                print(f"开始解析卡片（{label}）...")
-                cards_local = extract_cards(page, keyword=keyword)
-                if len(cards_local) < 8:
-                    page.wait_for_timeout(1200)
-                    cards_local = extract_cards(page, keyword=keyword)
-
-                if detail_limit > 0:
-                    cards_local = enrich_cards_from_detail_pages(
-                        page,
-                        cards_local,
-                        limit=detail_limit,
-                        delay_ms=detail_delay_ms,
-                    )
-                return cards_local
+                return accumulated_cards
 
             if keywords:
                 for kw in keywords:
-                    url = build_search_url(kw)
-                    print(f"打开搜索页：{url}")
+                    url = build_search_url(kw, sort=sort_type)
+                    print(f"打开搜索页（sort={sort_type}）：{url}")
                     page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-                    page.wait_for_timeout(1200)
+                    # 增加初始等待时间，确保页面元素（如筛选按钮）加载完成
+                    page.wait_for_timeout(3000)
 
                     if headful and login_wait_sec > 0:
                         wait_for_user_login_if_needed(page, login_wait_sec)
+
+                    # 如果需要“最新”排序，尝试通过 UI 点击切换
+                    # （因为 URL 参数 sort=time_descending 在某些版本/账号下可能无效）
+                    if sort_type == "time_descending":
+                        switch_to_newest_sort(page)
 
                     if page.is_closed():
                         print(
