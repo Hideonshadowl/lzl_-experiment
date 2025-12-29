@@ -33,9 +33,7 @@ XHS_BASE_URL = "https://www.xiaohongshu.com"
 XHS_EXPLORE_URL = f"{XHS_BASE_URL}/explore"
 
 # 直接在这里填写你要抓取的搜索词（可写多个，会依次抓取并汇总到同一个输出文件里）
-SEARCH_KEYWORDS: list[str] = [
-    # 示例："武功山旅游攻略",
-]
+SEARCH_KEYWORDS: list[str] = ["编程作业"]
 
 
 def build_search_url(keyword: str) -> str:
