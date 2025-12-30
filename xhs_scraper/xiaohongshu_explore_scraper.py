@@ -29,11 +29,19 @@ from pathlib import Path
 from typing import Any, Iterable
 from playwright.sync_api import Browser, Error, Page, Playwright, sync_playwright
 
+import os
+
 XHS_BASE_URL = "https://www.xiaohongshu.com"
 XHS_EXPLORE_URL = f"{XHS_BASE_URL}/explore"
 
-# 直接在这里填写你要抓取的搜索词（可写多个，会依次抓取并汇总到同一个输出文件里）
-SEARCH_KEYWORDS: list[str] = ["python有偿"]
+# 从环境变量获取搜索词，默认为 ["python有偿"]
+_env_keywords = os.environ.get("SEARCH_KEYWORDS")
+if _env_keywords:
+    # 支持逗号分隔的多个关键词，例如 "python,java,go"
+    SEARCH_KEYWORDS: list[str] = [k.strip() for k in _env_keywords.split(",") if k.strip()]
+else:
+    SEARCH_KEYWORDS: list[str] = ["python有偿"]
+
 HEADFUL: bool = True
 SCROLLS: int = 1
 
@@ -668,7 +676,6 @@ def main(argv: list[str]) -> int:
     # 排序方式：general (综合), time_descending (最新), popularity_descending (最热)
     sort_type = "time_descending"
     
-    profile_dir = ".xhs_profile"
     login_wait_sec = 30
     keep_open = False
     detail_limit = 0
@@ -677,8 +684,6 @@ def main(argv: list[str]) -> int:
     out_json = Path(__file__).parent / "res_docs/xhs_search.json"
 
     user_data_dir = None
-    if isinstance(profile_dir, str) and profile_dir.strip():
-        user_data_dir = Path(profile_dir).expanduser().resolve()
 
     with sync_playwright() as p:
         browser, page = launch_browser(p, headful=headful, user_data_dir=user_data_dir)

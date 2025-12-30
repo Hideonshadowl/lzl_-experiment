@@ -542,7 +542,7 @@ def main(argv: list[str]) -> int:
         "--headful", action="store_true", help="显示浏览器窗口（用于手动登录/验证码）"
     )
     ap.add_argument(
-        "--profile-dir", default=".xhs_profile", help="复用登录态的浏览器用户数据目录"
+        "--profile-dir", default=None, help="复用登录态的浏览器用户数据目录"
     )
     ap.add_argument(
         "--login-wait-sec", type=int, default=35, help="有头模式下等待登录/验证码的秒数"
@@ -567,13 +567,37 @@ def main(argv: list[str]) -> int:
     out_path = Path(args.out).expanduser().resolve()
 
     with sync_playwright() as p:
-        context = p.chromium.launch_persistent_context(
-            user_data_dir=str(Path(args.profile_dir).expanduser().resolve()),
-            headless=not args.headful,
-            viewport={"width": 1280, "height": 800},
-            locale="zh-CN",
-        )
-        page = context.pages[0] if context.pages else context.new_page()
+        if args.profile_dir:
+            context = p.chromium.launch_persistent_context(
+                user_data_dir=str(Path(args.profile_dir).expanduser().resolve()),
+                headless=not args.headful,
+                viewport={"width": 1280, "height": 800},
+                locale="zh-CN",
+            )
+            page = context.pages[0] if context.pages else context.new_page()
+        else:
+            browser = p.chromium.launch(
+                headless=not args.headful,
+            )
+            context = browser.new_context(
+                viewport={"width": 1280, "height": 800},
+                locale="zh-CN",
+            )
+            page = context.new_page()
+            
+            # 尝试加载 cookies.json
+            cookies_files = [Path("cookies.json"), Path("res_docs/cookies.json")]
+            for cp in cookies_files:
+                if cp.exists() and cp.is_file():
+                    print(f"发现 Cookies 文件：{cp}")
+                    try:
+                        cookies_data = json.loads(cp.read_text(encoding="utf-8"))
+                        if isinstance(cookies_data, list):
+                            context.add_cookies(cookies_data)
+                            print(f"成功注入 {len(cookies_data)} 条 Cookies。")
+                            break
+                    except Exception as e:
+                        print(f"注入 Cookies 失败 ({cp}): {e}")
 
         try:
             # 先用用户名关键词搜索用户列表

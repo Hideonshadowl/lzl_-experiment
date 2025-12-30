@@ -33,6 +33,10 @@ def main():
     print("Press Ctrl+C to stop the scheduler.")
 
     try:
+        # 从环境变量获取等待时间范围（单位：秒）
+        min_wait = int(os.environ.get("MIN_WAIT_SECONDS", 60))
+        max_wait = int(os.environ.get("MAX_WAIT_SECONDS", 600))
+        
         while True:
             # 1. Run the scraper
             # xiaohongshu_explore_scraper.main accepts argv list
@@ -42,8 +46,8 @@ def main():
             else:
                 print("Scraper failed, skipping email sending.")
 
-            # 3. Wait for a random time between 1 and 10 minutes (60 to 600 seconds)
-            wait_seconds = random.randint(60, 600)
+            # 3. Wait for a random time
+            wait_seconds = random.randint(min_wait, max_wait)
             wait_minutes = wait_seconds / 60
             
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Sleeping for {wait_seconds} seconds ({wait_minutes:.2f} minutes)...")
