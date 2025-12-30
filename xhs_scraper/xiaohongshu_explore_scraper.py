@@ -390,6 +390,18 @@ def wait_for_user_login_if_needed(page: Page, timeout_sec: int) -> None:
         print("[登录检测] 未发现明显阻断弹窗，无需等待。")
 
 
+def save_cookies(page: Page, out_path: Path) -> None:
+    """保存当前 Cookies 到文件，方便下次复用。"""
+    try:
+        cookies = page.context.cookies()
+        if cookies:
+            _ensure_parent(out_path)
+            out_path.write_text(json.dumps(cookies, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"✅ 已保存最新的 Cookies 到：{out_path} (可提交到仓库供服务器使用)")
+    except Exception as e:
+        print(f"⚠️ 保存 Cookies 失败: {e}")
+
+
 def scroll_page(page: Page, scrolls: int, scroll_pause_ms: int) -> None:
     """滚动页面指定次数，每次间隔一定时间。"""
     for i in range(scrolls):
@@ -670,6 +682,28 @@ def main(argv: list[str]) -> int:
 
     with sync_playwright() as p:
         browser, page = launch_browser(p, headful=headful, user_data_dir=user_data_dir)
+        
+        # --- 新增：尝试加载 cookies.json ---
+        # 优先从当前目录加载，也可以指定其他路径
+        cookies_files = [Path("cookies.json"), Path("res_docs/cookies.json")]
+        for cp in cookies_files:
+            if cp.exists() and cp.is_file():
+                print(f"发现 Cookies 文件：{cp}")
+                try:
+                    cookies_data = json.loads(cp.read_text(encoding="utf-8"))
+                    if isinstance(cookies_data, list):
+                        # Playwright 的 add_cookies 需要特定的字段，通常从 EditThisCookie 导出的就够用
+                        # 过滤掉不支持的字段（可选，Playwright 通常会忽略多余字段，但 sameSite 需要注意大小写）
+                        page.context.add_cookies(cookies_data)
+                        print(f"成功注入 {len(cookies_data)} 条 Cookies。")
+                        
+                        # 注入后刷新页面以生效（如果已经在某个页面）
+                        # 但这里还没打开页面，所以无需刷新
+                        break
+                except Exception as e:
+                    print(f"注入 Cookies 失败 ({cp}): {e}")
+        # -------------------------------------
+
         try:
             # 过滤空关键词：
             # - 若有关键词：按关键词抓搜索页
@@ -721,6 +755,8 @@ def main(argv: list[str]) -> int:
 
                     if headful and login_wait_sec > 0:
                         wait_for_user_login_if_needed(page, login_wait_sec)
+                        # 尝试保存 Cookies
+                        save_cookies(page, Path("res_docs/cookies.json"))
 
                     # 如果需要“最新”排序，尝试通过 UI 点击切换
                     # （因为 URL 参数 sort=time_descending 在某些版本/账号下可能无效）
@@ -750,6 +786,7 @@ def main(argv: list[str]) -> int:
 
                 if headful and login_wait_sec > 0:
                     wait_for_user_login_if_needed(page, login_wait_sec)
+                    save_cookies(page, Path("res_docs/cookies.json"))
 
                 if page.is_closed():
                     print(
