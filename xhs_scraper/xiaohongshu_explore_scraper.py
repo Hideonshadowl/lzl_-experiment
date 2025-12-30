@@ -831,6 +831,13 @@ def main(argv: list[str]) -> int:
 
         finally:
             try:
+                # 在关闭浏览器前，再次尝试保存最新的 Cookies
+                if page and not page.is_closed():
+                    save_cookies(page, Path("res_docs/cookies.json"))
+            except Exception as e:
+                print(f"退出前保存 Cookies 失败: {e}")
+                
+            try:
                 browser.close()
             except Exception:
                 pass
